@@ -1,0 +1,671 @@
+---
+title: "**Part-II Inferential Statistics**"
+# author: "Abhishek Sharma"
+# date: "2023-12-12"
+
+output: 
+  pdf_document:
+    latex_engine: xelatex
+header-includes:
+  - \usepackage{changepage}
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 2.1 Inference on Mean
+1. We will compare the mean age of patients who survived against those who did not. Our null hypothesis $(H_0)$ is that the population mean of age for both the groups is same and alternate hypothesis $(H_1)$ being that they are not. We will be testing this at a significance level $\alpha$ of $5\%$. We have already proved earlier that our data satisfies normality assumptions as well as CLT.
+```{r}
+    # Reading the dataset and removing the outliers
+    brca <- read.csv("BRCA.csv")
+    brca[brca == ""] <- NA
+    brca <- brca[complete.cases(brca), ]
+    # brca <- na.omit(brca)
+    
+    # Selecting the patients alive and dead
+    alive <- subset(brca, Patient_Status == "Alive")
+    dead <- subset(brca, Patient_Status == 'Dead')
+    
+    # Sample mean and standard deviations
+    xbar_alive <- mean(alive$Age)
+    xbar_dead <- mean(dead$Age)
+    var_alive <- var(alive$Age)
+    var_dead <- var(dead$Age)
+    
+    # Now that we have specified our significance level and sample means
+    # and sample averages. We will use a Welch t-test statistic 
+    
+    # Computing sample pooled variance, 
+    # See that our assumptions to use CLT are satisfied (n_alive, n_dead both >= 30)
+    n_alive <- nrow(alive)
+    n_dead <- nrow(dead)
+    
+    # Assuming unequal variances for the two population groups
+    pooled_var <- ((n_alive-1)*var_alive + (n_dead-1)*var_dead)/(n_alive + n_dead-2)
+    dof <- n_alive + n_dead - 2                     # By Welch-Satterthwaite equation
+    
+    t_statistic <- (xbar_alive - xbar_dead)/(sqrt(pooled_var*((1/n_alive) +(1/n_dead))))
+    
+    # Computing the p-value corresponding to our t-statistic
+    p_val <- 2*(1-pt(t_statistic, dof))                  # Since 2 tailed t-test for t<0
+    p_val
+```
+\begin{adjustwidth}{3em}{}
+We can clearly see that the p-val corresponding to the t-statistic is > 0.05. Hence we do not have sufficient evidence to prove that the population mean age of the patients with breast cancer that are alive is same as the population mean for the patients who passed away.
+\end{adjustwidth}
+\vspace{5pt}
+2. ANOVA testing for patients mean age in different cancer stages. We will test this against the significance level $\alpha$= 0.05. As before our null hypothesis $(H_0)$ is that: Mean age of patients in all the three stages is the same. Alternate hypothesis $(H_1)$: Atleast one group mean age differs.
+```{r}
+    xbar_stage1 <- subset(brca, Tumour_Stage == 'I')
+    xbar_stage2 <- subset(brca, Tumour_Stage == 'II')
+    xbar_stage3 <- subset(brca, Tumour_Stage == 'III')
+    
+    # We will be using aov function directly
+    model <- aov(brca$Age~brca$Tumour_Stage)
+    anova(model)
+```
+\vspace{5pt}
+\begin{adjustwidth}{3em}{}
+We can clearly see that p value is less than 0.05. hence the mean age groups are definitely different. Let's use posthoc tests with Scheffe's correction to see which group has different mean age.
+\end{adjustwidth}
+```{r}
+    library(DescTools)
+    # Taking our previously created anova model as input
+    ScheffeTest(model, conf.level = 0.05)
+```
+\vspace{5pt}
+\begin{adjustwidth}{3em}{}
+As a result we can see that patients in with cancer stages-I and III share different mean ages! Now, let's make a boxplot to see visualize the sample age distribution according to Patient status and Tumour stages. 
+\end{adjustwidth}
+```{r, out.width='75%', fig.align='center'}
+    library(DescTools)
+    library(ggplot2)
+    box_plot1 <- ggplot(brca, aes(x = Patient_Status, y = brca$Age, 
+                                 fill = Patient_Status)) + geom_boxplot()
+    box_plot1 <- box_plot1 + ggtitle("Patient Age Distibution")
+    box_plot1 <- box_plot1 + labs(y = "Age", x = 'Patient Status')
+    
+    # Now for the tumour stages
+    box_plot2 <- ggplot(brca, aes(x = Tumour_Stage, 
+                                 y = brca$Age, 
+                                 fill = Tumour_Stage)) + geom_boxplot()
+    box_plot2 <- box_plot2 + ggtitle("Patient Age Distibution")
+    box_plot2 <- box_plot2 + labs(y = "Age", x = 'Tumour Stage')
+    plot(box_plot1)
+    plot(box_plot2)
+```
+
+## 2.2 Inference	about	Variance
+We will be comparing protein variances among patients using	inference	about variance methods. Before that we would like to plot boxplots for the different proteins present and see if we can visually spot any noticeable difference in the spreads.
+```{r, out.width='75%', fig.align='center'}
+# Getting the protein vectors 
+
+prot_1 <- brca$Protein1
+prot_2 <- brca$Protein2
+prot_3 <- brca$Protein3
+prot_4 <- brca$Protein4
+
+# Create a new dataframe
+prot_dataframe <- data.frame(Protein1 = prot_1, 
+                             Protein2 = prot_2, 
+                             Protein3 = prot_3, 
+                             Protein4 = prot_4)
+
+
+# Plot boxplots of each column in the same figure
+boxplot(prot_dataframe, col = c("blue", "green", "orange", 'red'),
+             main = "Protein Distribution")
+
+```
+We can see that the spread for the protein are not the same, there definetely seems to be some variation. Let us formally test this intuition.
+\vspace{5pt}
+For this purpose, we will do various two-sample variance tests with corrected significance value using Bonferroni Correction such that our overall desired significance level $\alpha$ is 0.05. Our Null hypothesis $(H_0)$ for all pairwise tests is that population variance for both the groups are same. Alternate hypothesis $(H_1)$ therefore them being not the same. Overall we will be doing $\mathrm{C}_{2}^{4} = 6$ of these tests.
+
+```{r}
+alpha <- 0.05/((nrow(brca))*(nrow(brca)-1)/2)                 #(aplha < 9.9e-7)
+
+# Doing two-sample variance tests now
+
+# Prot1 and Prot2
+var.test(prot_1,prot_2, ratio = 1, alt = 'two.sided', conf.level = alpha)
+
+# Prot1 and Prot3
+var.test(prot_1,prot_3, ratio = 1, alt = 'two.sided', conf.level = alpha)
+
+# Prot1 and Prot4
+var.test(prot_1,prot_4, ratio = 1, alt = 'two.sided', conf.level = alpha)
+
+# Prot2 and Prot3
+var.test(prot_2,prot_3, ratio = 1, alt = 'two.sided', conf.level = alpha)
+
+# Prot2 and Prot4
+var.test(prot_2,prot_4, ratio = 1, alt = 'two.sided', conf.level = alpha)
+
+# Prot3 and Prot4
+var.test(prot_3,prot_4, ratio = 1, alt = 'two.sided', conf.level = alpha)
+
+
+```
+
+Even after a corrected significance level $\alpha^* = 9.9\mathrm{e}{-7}$ we find that the p-value corresponding to the following pairs less than $\alpha^*$ - 
+
+```{r table2, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- "
+|  Protein Pair |    p-value    |
+|---------------|:-------------:|
+|     I-II      | < 2.2e-16     |
+|     II-III    | 4.796e-14     |
+|     II-IV     | 8.146e-11     |
+"
+cat(tabl)
+```
+We see that Protein-II has a different variance in comparison to the rest and can visually confirm this.
+
+## 2.3 Inference on Treatment Duration
+We would like to find if the mean treatment time and the spread as same for the patients who are alive and who have passed away
+```{r, out.width='75%', fig.align='center'}
+# Removing rows that have last visit > today's date
+today <- as.Date(format(Sys.Date()))
+brca$Date_of_Surgery <- as.Date(brca$Date_of_Surgery, format = "%d-%b-%y")
+brca$Date_of_Last_Visit <- as.Date(brca$Date_of_Last_Visit, format = "%d-%b-%y")
+brca_mod <- brca[brca$Date_of_Last_Visit <= today, ]
+
+alive <- subset(brca_mod, Patient_Status == "Alive")
+dead <- subset(brca_mod, Patient_Status == 'Dead')
+# Treatment duration
+
+treatment_dur_alive <- as.numeric(alive$Date_of_Last_Visit - alive$Date_of_Surgery)
+treatment_dur_dead <- as.numeric(dead$Date_of_Last_Visit - dead$Date_of_Surgery)
+
+data <- list(Alive = treatment_dur_alive, Dead = treatment_dur_dead)
+
+# Plot boxplots of each column in the same figure
+boxplot(data, col = c("green", 'red'), main = "Treatment Duration", 
+        xlab = 'Patient Status', ylab = "Time (days)")
+
+# 
+```
+```{r, out.width='65%', fig.align='center'}
+# For patients alive
+binwidth <- ceiling((max(treatment_dur_alive) - 
+                       min(treatment_dur_alive)) 
+                    / (1 + log(length(treatment_dur_alive))))
+alive_data_hist <- data.frame(Alive = treatment_dur_alive)
+alive_hist <- ggplot(alive_data_hist, aes(Alive)) +
+  geom_histogram(binwidth = binwidth, 
+                 aes(y = ..density..), fill='lightgray', col='black')
+
+alive_hist <- alive_hist + xlab("Treatment Time (days)") + ylab("Density")+
+  stat_function(fun = dnorm, args = list(mean=mean(treatment_dur_alive),
+                                         sd=sd(treatment_dur_alive)),
+                col='red', lwd=0.5, lty='dashed')
+alive_hist <- alive_hist + ggtitle("Alive Patient Treatment Distibution")
+plot(alive_hist)
+
+# For patients not alive
+binwidth <- ceiling((max(treatment_dur_dead) - 
+                       min(treatment_dur_dead)) 
+                    / (1 + log(length(treatment_dur_dead))))
+dead_data_hist <- data.frame(Dead = treatment_dur_dead)
+dead_hist <- ggplot(dead_data_hist, aes(Dead)) +
+  geom_histogram(binwidth = binwidth, 
+                 aes(y = ..density..), fill='lightgray', col='black')
+
+dead_hist <- dead_hist + xlab("Treatment Time (days)") + ylab("Density")+
+  stat_function(fun = dnorm, args = list(mean=mean(treatment_dur_dead),
+                                         sd=sd(treatment_dur_dead)),
+                col='red', lwd=0.5, lty='dashed')
+dead_hist <- dead_hist + ggtitle("Dead Patient Treatment Distibution")
+plot(dead_hist)
+
+```
+## 2.4 Inference on Tumor stage and surgery type
+We intend to see whether surgery type varies with the tumor stage. For this purpose we used barplots.
+```{r, out.width='65%', fig.align='center'}
+# Tumour stage and surgery type
+counts <- table(brca$Surgery_type, brca$Tumour_Stage)
+# Converting the counts to a data frame
+count_df <- as.data.frame(counts)
+colnames(count_df) <- c("Surgery_Type", "Tumour_Stage", "Count")
+plots <- ggplot(count_df, aes(x = Tumour_Stage, y = Count, fill = Surgery_Type))
+plots <- plots + geom_bar(stat = "identity", position = "dodge") 
+plots
+```
+We can see no clear inference can be made other than the fact that patients in stage-II tend to receive surgery more than stage-I and stage-III patients. The dominant surgery type for the respective stages are summarized below. Note that other means that some other type of surgery was performed that the ones mentioned in the dataset.
+```{r table3, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tab1 <- "
+|  Tumor Stage  |         Dominant Surgery Type   |
+|---------------|:-------------------------------:|
+|     I         | Lumpectomy                      |
+|     II        | Other                           |
+|     III       | Modified Radical Mastectomy     |
+"
+cat(tab1)
+```
+## 2.5 Inference about proportions
+In this section, we intend to check the survival rate for the three tumour stages. We will first test to see if there is a difference between the survival rate for patients with different tumour stages. We will take the signficance value $\alpha$ = 0.05 for all the tests.
+```{r}
+library(DescTools)
+data <- read.csv("BRCA.csv")
+summary(data)
+data <- data[data$Patient_Status != "", ]
+x <- table(data$Tumour_Stage)
+print(x)
+```
+
+
+
+```{r}
+x1 <- nrow(data[data$Tumour_Stage == "I" & data$Patient_Status == "Alive", ])
+x2 <- nrow(data[data$Tumour_Stage == "II" & data$Patient_Status == "Alive", ])
+x3 <- nrow(data[data$Tumour_Stage == "III" & data$Patient_Status == "Alive", ])
+n1 <- 61
+n2 <- 182
+n3 <- 78
+```
+Firstly, we will check for the normality assumptions based on CLT to check if using prop test would be valid. From the data, $n_1p_1$ = 51 and $n_1(1-p_1)$ = 10; $n_2p_2$ = 144 and $n_2(1-p_2)$ = 38; and $n_3p_3$ = 60 and $n_3(1-p_3)$ = 18. As all the values are greater than 5, we can use prop test on this data. We will perform two sample prop tests on different pairs of tumour stages data. The Null hypothesis $H_0$ will be that the both proportions will be equal and the alternative hypothesis $H_1$ will be that the both proportions will not be equal. 
+
+```{r}
+x12 <- c(x1,x2)
+n12 <- c(n1,n2)
+x13 <- c(x1,x3)
+n13 <- c(n1,n3)
+x23 <- c(x2,x3)
+n23 <- c(n2,n3)
+prop.test(x12,n12,alternative = "two.sided", conf.level = 0.95, correct = TRUE)
+prop.test(x13,n13,alternative = "two.sided", conf.level = 0.95, correct = TRUE)
+prop.test(x23,n23,alternative = "two.sided", conf.level = 0.95, correct = TRUE)
+```
+From the above, we can see that p-value is much much greater than significance value for all the three tests, we fail to reject $H_0$ for all of them. Hence, there is no significance evidence to say that the survival rate for patients with different tumour stages is different for any pair of tumour stages.\\
+
+Now, we will try and see if the survival rate is greater when the tumor stage detected is early i.e, the survival rate for patients with tumour stage I is greater than that of tumour stage III. Hence, $H_0: p_I \leq p_{III}$ and $H_1: p_I > p_{III}$ We will perform one sided prop test see if the above claim is true. 
+```{r}
+prop.test(x13,n13,alternative = "greater", conf.level = 0.95,correct = TRUE)
+```
+From the above, we can see that the p-value is greater than the significance value, we fail to reject $H_0$. Hence, there is no significant evidence to say that the survival rate for patients with tumour stage I is greater than that of tumour stage III.
+
+## 2.6 Inference on Independence 
+```{r}
+hist <- table(data$Histology)
+print(hist)
+```
+Now, we will try to see if the Histology is associated with the tumour stage of the patients. For this, we will use $\chi^2$ independence test. First, we collected the data from the dataset relating histology and tumour size, it is as follows:
+\begin{tabular}{c|ccc}
+  \hline
+Tumour stage & Infiltrating Ductal Carcinoma & Mucinous Carcinoma & Infiltrating Lobular Carcinoma\\
+\hline
+III & 57 & 0 & 21\\
+II & 121 & 9 & 52\\
+I & 48 & 3 & 10\\
+\hline  
+\end{tabular}
+For this test, $H_0$: Histology is independent to the tumour stage and $H_1$: Histology is associated with the tumour stage. We will use $\alpha$ = 0.05. 
+```{r}
+mat <- c()
+for (i in unique(data$Histology)) {
+  for (j in unique(data$Tumour_Stage)) {
+    count <- nrow(data[data$Tumour_Stage == j & data$Histology == i, ])
+    mat <- append(mat,count)
+  }
+}
+mat1 <- matrix(mat, nrow = 3, ncol = 3)
+chisq.test(mat1,simulate.p.value = TRUE, correct = F)
+```
+From the above, we can see that the p-value is greater the significance value, we fail to reject $H_0$. Hence, there is no significant evidence to say that the Histology is associated with the tumour stage of the patients.
+Now, we will try and see if Surgery type is associated with the tumour stage. We will use the same significance value as before. Here, $H_0$: Surgery type is independent to the tumour stage and $H_1$: Surgery type is associated with the tumour stage. The data looks like:
+\begin{tabular}{c|cccc}
+  \hline
+Tumour stage & Modified Radical Mastectomy & Lumpectomy & Other & Simple Mastectomy\\
+\hline
+III & 38 & 8 & 23 & 9\\
+II & 47 & 36 & 56 & 43\\
+I & 7 & 22 & 19 & 13\\
+\hline  
+\end{tabular}
+```{r}
+mat4 <- c()
+for (i in unique(data$Surgery_type)) {
+  for (j in unique(data$Tumour_Stage)) {
+    count <- nrow(data[data$Tumour_Stage == j & data$Surgery_type == i, ])
+    mat4 <- append(mat4,count)
+  }
+}
+mat5 <- matrix(mat4, nrow = 3, ncol = 4)
+chisq.test(mat5,simulate.p.value = TRUE, correct = F)
+```
+From the above, we can see that the p-value is less than the significance value, we reject $H_0$. Hence, there is significant evidence to say that the surgery type done is based on the tumour stage the patient is in. 
+
+## 2.7 ANOVA
+Here, we want to check if the mean value of different proteins is same for the patients at different tumour stages. Hence, we will perform ANOVA (as the tumour stages are greater than 2) to see what we can infer. To perform ANOVA, we need to meet three requirements such as the distribution of proteins should be normal across all the tumour stages, the variance of proteins should be equal across all the tumour stages and the protein values should be independent. We can almost say that the protein values are independent. We have to check for normality and equal variance. Below are different plots to let us know whether the requirements are met. 
+```{r out.width='50%', fig.align='center'}
+library(e1071)
+library(ggplot2)
+stage1 <- subset(data, Tumour_Stage == 'I')
+stage2 <- subset(data, Tumour_Stage == 'II')
+stage3 <- subset(data, Tumour_Stage == 'III')
+N1 <- nrow(stage1)
+num_bins_1 <- ceiling(1 + log2(N1))
+skewness_value <- skewness(stage1$Protein1, na.rm = TRUE)
+age_hist <- ggplot(stage1, aes(x = Protein1)) +
+  geom_histogram(bins = num_bins_1, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 1 in Tumour Stage I", x = "Protein1", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage1$Protein2, na.rm = TRUE)
+age_hist <- ggplot(stage1, aes(x = Protein2)) +
+  geom_histogram(bins = num_bins_1, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 2 in Tumour Stage I", x = "Protein2", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage1$Protein3, na.rm = TRUE)
+age_hist <- ggplot(stage1, aes(x = Protein3)) +
+  geom_histogram(bins = num_bins_1, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 3 in Tumour Stage I", x = "Protein3", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage1$Protein4, na.rm = TRUE)
+age_hist <- ggplot(stage1, aes(x = Protein4)) +
+  geom_histogram(bins = num_bins_1, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 4 in Tumour Stage I", x = "Protein4", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+qq1 <- ggplot(stage1, aes(sample=Protein1)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 1 in Tumour satge I")
+qq1
+qq2 <- ggplot(stage1, aes(sample=Protein2)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data",
+       title="Quantile-Quantile plot for Protein 2 in Tumour satge I")
+qq2
+qq3 <- ggplot(stage1, aes(sample=Protein3)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 3 in Tumour satge I")
+qq3
+qq4 <- ggplot(stage1, aes(sample=Protein4)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 4 in Tumour satge I")
+qq4
+```
+
+
+```{r out.width='50%', fig.align='center'}
+N2 <- nrow(stage2)
+num_bins_2 <- ceiling(1 + log2(N1))
+skewness_value <- skewness(stage2$Protein1, na.rm = TRUE)
+age_hist <- ggplot(stage2, aes(x = Protein1)) +
+  geom_histogram(bins = num_bins_2, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 1 in Tumour Stage II", x = "Protein1",
+       y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage2$Protein2, na.rm = TRUE)
+age_hist <- ggplot(stage2, aes(x = Protein2)) +
+  geom_histogram(bins = num_bins_2, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 2 in Tumour Stage II", 
+       x = "Protein2", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage2$Protein3, na.rm = TRUE)
+age_hist <- ggplot(stage2, aes(x = Protein3)) +
+  geom_histogram(bins = num_bins_2, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 3 in Tumour Stage II", x = "Protein3", 
+       y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage2$Protein4, na.rm = TRUE)
+age_hist <- ggplot(stage2, aes(x = Protein4)) +
+  geom_histogram(bins = num_bins_2, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 4 in Tumour Stage II", x = "Protein4", 
+       y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+qq5 <- ggplot(stage2, aes(sample=Protein1)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 1 in Tumour stage II")
+qq5
+qq6 <- ggplot(stage2, aes(sample=Protein2)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 2 in Tumour stage II")
+qq6
+qq7 <- ggplot(stage2, aes(sample=Protein3)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 3 in Tumour stage II")
+qq7
+qq8 <- ggplot(stage2, aes(sample=Protein4)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 4 in Tumour stage II")
+qq8
+```
+
+```{r out.width='50%', fig.align='center'}
+N3 <- nrow(stage3)
+num_bins_3 <- ceiling(1 + log2(N1))
+skewness_value <- skewness(stage3$Protein1, na.rm = TRUE)
+age_hist <- ggplot(stage3, aes(x = Protein1)) +
+  geom_histogram(bins = num_bins_3, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 1 in Tumour Stage III", 
+       x = "Protein1", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage3$Protein2, na.rm = TRUE)
+age_hist <- ggplot(stage3, aes(x = Protein2)) +
+  geom_histogram(bins = num_bins_3, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 2 in Tumour Stage III", 
+       x = "Protein2", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage3$Protein3, na.rm = TRUE)
+age_hist <- ggplot(stage3, aes(x = Protein3)) +
+  geom_histogram(bins = num_bins_3, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 3 in Tumour Stage III", 
+       x = "Protein3", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+skewness_value <- skewness(stage3$Protein4, na.rm = TRUE)
+age_hist <- ggplot(stage3, aes(x = Protein4)) +
+  geom_histogram(bins = num_bins_3, fill = "hotpink", color = "grey") +
+  labs(title = "Histogram of Protein 4 in Tumour Stage III", 
+       x = "Protein4", y = "Frequency")
+age_hist + 
+  annotate("text", x = Inf, y = Inf, label = paste("Skewness:", 
+                                                   round(skewness_value, 2)), 
+           hjust = 1.1, vjust = 1.1, color = "red")
+```
+
+```{r out.width='50%', fig.align='center'}
+qq9 <- ggplot(stage3, aes(sample=Protein1)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 1 in Tumour stage III")
+qq9
+qq10 <- ggplot(stage3, aes(sample=Protein2)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 2 in Tumour stage III")
+qq10
+qq11 <- ggplot(stage3, aes(sample=Protein3)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 3 in Tumour stage III")
+qq11
+qq12 <- ggplot(stage3, aes(sample=Protein4)) + stat_qq() + stat_qq_line() + 
+  labs(x="Theoretical Quantile", y="Actual Data", 
+       title="Quantile-Quantile plot for Protein 4 in Tumour stage III")
+qq12
+```
+From the above plots, we can see that there is no protein whose distribution is normal across all the tumour stages. But in case of protein 2, there is approximately same shape of distribution across all the tumour stages. Hence, we will perform Kruskal's test on it. The null hypothesis $H_0$ will be that the median values of protein 2 across all the tumour stages is equal and the alternate hypothesis $H_1$ will be that one of the median values differ. We will use the same significance value. 
+
+```{r}
+#load library
+library(FSA)
+kruskal.test(Protein2 ~ Tumour_Stage, data = data)
+dunnTest(Protein2 ~ Tumour_Stage, data = data,
+         method="bonferroni")
+```
+From the above, we can see that the p-value for kruskal's test is greater than the significance value, we fail to reject $H_0$. There is no significant evidence to say that the median value of protein 2 across all the tumour stages is different. To further evaluate this, we will do post-hoc analysis to see which pairs had similar or different medians. Using bonferroni correction which is very conservative, we will get p-values of all the pairs greater than $\alpha$. Hence, we can surely say that the p-values will be greater than corrected significance value $\alpha^*$. Hence, there are no pairs whose medians are different from each other. That means, there are no two tumour stages whose median value of protein 2 is significantly different.  
+Since, the requirements for ANOVA didn't meet, there is no point in using it on the protein data. We tried to do box-cox transformation and then perform ANOVA, but there are some negative values for proteins which prevented us from doing so. Just for a sample, below is ANOVA on one of the proteins. 
+
+```{r}
+fit2 <- aov(data$Protein1~data$Tumour_Stage)
+summary(fit2)
+ScheffeTest(fit2)
+```
+We can see that the p-value is very high for ANOVA model indicating no evidence to say that the mean value of protein 1 is different across tumour stages. Using Scheffe post-hoc analysis, we can see that the p-values are very high for different pairs indicating no pair of tumour stages have different mean values of protein 1. These results are also not accurate because the assumption for ANOVA are not met.
+
+## 2.8 Inference about correlation
+We will now try to see if there is correlation between different proteins. For all of the tests performed below, the null hypothesis $H_0$ will be that there is zero correlation between the two proteins and the alternative hypothesis $H_1$ will be that there is a non-zero correlation between the two proteins. As the sample size is greater than 10, we can perform the correlation test with $\alpha = 0.05$ using spearman method because there maybe some outliers in the data. 
+
+```{r}
+cor.test(data$Protein1,data$Protein2,method="spearman",exact = FALSE)
+cor.test(data$Protein1,data$Protein3,method="spearman",exact = FALSE)
+cor.test(data$Protein1,data$Protein4,method="spearman",exact = FALSE)
+cor.test(data$Protein2,data$Protein3,method="spearman",exact = FALSE)
+cor.test(data$Protein2,data$Protein4,method="spearman",exact = FALSE)
+cor.test(data$Protein3,data$Protein4,method="spearman",exact = FALSE)
+```
+```{r table1, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl_1 <- "
+|  Protein Pair |    p-value  |
+|---------------|:-----------:|
+|     I-II      | 2.61e-05    |
+|     I-III     | 0.03338     |
+|     I-IV      | 5.77e-05    |
+|     II-III    | 2.492e-10   |
+|     II-IV     | 0.09442     |
+|     III-IV    | 0.1743      |
+"
+cat(tabl_1)
+```
+
+From the above table, we can see the p-values for pairs I-II, I-III, I-IV and II-III are less than the significance value. Hence, there is significance evidence to say that there is non-zero correlation between the aforementioned pairs of proteins. 
+Now, we will see if there is any correlation between the patients age with different proteins. $H_0$ will be that the age and protein have zero correlation and $H_1$ will be that the age and proteins have a non-zero correlation. 
+```{r out.width='50%', fig.align='center'}
+cor.test(data$Age,data$Protein1,method="spearman",exact = FALSE)
+cor.test(data$Age,data$Protein2,method="spearman",exact = FALSE)
+cor.test(data$Age,data$Protein3,method="spearman",exact = FALSE)
+cor.test(data$Age,data$Protein4,method="spearman",exact = FALSE)
+```
+
+```{r table4, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl_2 <- "
+|  Protein Pair |    p-value  |
+|---------------|:-----------:|
+|     age-I     | 0.581       |
+|     age-II    | 0.884       |
+|     age-III   | 0.4986      | 
+|     age-IV    | 0.4986      |
+"
+cat(tabl_2)
+```
+From the above table, we can see that there is no p-value which is less than the significance value. Hence, we can say that there is no significant evidence to say that there is non-zero correlation between age and any of the protein levels.
+
+## 2.9 Regression Analysis
+In this section, we intend to fit a regression model on age to predict different protein values.
+From the previous section, we got to know that there is no significant evidence to say that there is non-zero correlation between age and any protein values. Hence, performing regression fitting won't be much helpful and the predicted line won't be a proper fit. To visualize this, we have performed regression fitting for age to predict all the four proteins.
+```{r out.width='50%', fig.align='center'}
+model <- lm(data$Protein1~data$Age)
+plot(data$Age,data$Protein1) 
+abline(model)
+summary(model)
+```
+
+```{r out.width='50%', fig.align='center'}
+model1 <- lm(data$Protein2~data$Age)
+plot(data$Age,data$Protein2) 
+abline(model1)
+summary(model1)
+```
+
+```{r out.width='50%', fig.align='center'}
+model2 <- lm(data$Protein3~data$Age)
+plot(data$Age,data$Protein3) 
+abline(model2)
+summary(model2)
+```
+
+```{r out.width='50%', fig.align='center'}
+model3 <- lm(data$Protein4~data$Age)
+plot(data$Age,data$Protein4) 
+abline(model3)
+summary(model3)
+```
+From all the above plots, we can see that the $R^2$ value for all the models is very less indicating the fit is bad. Moreover , the p-values for the age attribute in all the models is high indicating that age is not a good attribute to predict the protein levels. 
+
+Now, as we saw that there are some pairs of proteins whose correlation is non-zero, we will try to perform regression on those pairs. 
+```{r out.width='50%', fig.align='center'}
+model4 <- lm(data$Protein2~data$Protein1)
+plot(data$Protein1,data$Protein2) 
+abline(model4)
+summary(model4)
+```
+From the above regression fit, we can write Protein 2 = 0.96484 + 0.38814 * Protein 1. The $R^2$ value is still low but we can at least say they have the above relationship.
+```{r out.width='50%', fig.align='center'}
+model5 <- lm(data$Protein3~data$Protein1)
+plot(data$Protein1,data$Protein3) 
+abline(model5)
+summary(model5)
+```
+From the above regression fit, we can write Protein 3 = -0.09654 - 0.12304 * Protein 1. The $R^2$ value is still low but we can at least say they have the above relationship.
+```{r out.width='50%', fig.align='center'}
+model6 <- lm(data$Protein4~data$Protein1)
+plot(data$Protein1,data$Protein4) 
+abline(model6)
+summary(model6)
+```
+From the above regression fit, we can write Protein 4 = 0.01651 + 0.29086 * Protein 1. The $R^2$ value is still low but we can at least say they have the above relationship.
+```{r out.width='50%', fig.align='center'}
+model7 <- lm(data$Protein3~data$Protein2)
+plot(data$Protein2,data$Protein3) 
+abline(model7)
+summary(model7)
+```
+From the above regression fit, we can write Protein 3 = 0.15848 - 0.263746 * Protein 2. The $R^2$ value is better than the above models and hence this is by far the best regression model because the p-value for Protein 2 is also very low indicating it can be very useful to predict Protein 3 levels. 
