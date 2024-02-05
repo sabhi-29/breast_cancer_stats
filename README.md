@@ -4,7 +4,7 @@
 Breast cancer poses a significant challenge in contemporary healthcare, impacting millions of lives globally. This project aims to leverage the intersection of medical science and data analytics to unravel the intricacies of breast cancer. The dataset from Kaggle, comprising 334 instances and 17 attributes, provides a comprehensive view of breast cancer diagnoses. Our mission is to extract meaningful patterns, correlations, and insights to contribute to ongoing research, diagnosis, and treatment efforts.
 
 ### Project Proposal
-The project proposal is detailed in the attached R Markdown (RMD) file, and the final report is available in the repository. We'd like to encourage readers to explore the detailed report for a more in-depth understanding.
+The project proposal is detailed in the attached R Markdown (RMD) file, and the final report is available in the repository. We'd like to encourage readers to explore the detailed report for a more in-depth understanding
 
 ## Descriptive Statistics
 ### 1.1 Age Distribution and Cancer Stage
